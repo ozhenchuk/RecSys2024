@@ -1,4 +1,4 @@
-Recommender Systems @ UCU Capstone Project
+Recommender Systems @ UCU | Capstone Project
 
 **Evaluation checkpoints:**
 
@@ -20,5 +20,5 @@ The project is based on the dataset
 
 - Clone the repository (can be done via)
 - Install needed packages from the `requirements.txt` by executing
-- Download the full dataset from and put it into the `data` folder
+- Download the full dataset from the [link](https://grouplens.org/datasets/movielens/1m/) and unpack it into the `data` folder with the whole data structure (the dataset root folder should be `data/ml_1m`)
 - Congratulations, you have the project set up
