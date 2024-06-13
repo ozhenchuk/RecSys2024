@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
 
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
 
 import torch
 import torch.nn as nn
@@ -29,33 +29,18 @@ def preprocess_data(ratings, movies):
     data["title"] = data["title"].str.replace(r"\(\d+\)", "").str.strip()
     data["genres"] = data["genres"].apply(lambda x: " ".join(x))
 
-    genre_vectorizer = TfidfVectorizer(max_features=500)
-    tfidf_genres = genre_vectorizer.fit_transform(data["genres"])
-
-    title_vectorizer = TfidfVectorizer(max_features=500)
-    tfidf_titles = title_vectorizer.fit_transform(data["title"])
-
-    tfidf_features = np.hstack((tfidf_genres.toarray(), tfidf_titles.toarray()))
-
-    scaler = MinMaxScaler()
-    item_profiles = scaler.fit_transform(tfidf_features)
-
-    user_profiles = data.groupby("user_id").apply(
-        lambda x: np.mean(item_profiles[x.index], axis=0)
-    )
-    user_profiles = scaler.fit_transform(user_profiles.tolist())
-
     data["genre_embeddings"] = data["genres"].apply(
         lambda x: get_embedding(x, word2vec)
     )
     data["title_embeddings"] = data["title"].apply(lambda x: get_embedding(x, word2vec))
-
     embeddings = np.hstack(
         (
             data["genre_embeddings"].values.tolist(),
             data["title_embeddings"].values.tolist(),
         )
     )
+
+    scaler = MinMaxScaler()
 
     item_profiles = scaler.fit_transform(embeddings)
 
@@ -115,19 +100,68 @@ class DropoutContentBasedModel(nn.Module):
         return x
 
 
-def train(model, train_data, test_data, epochs=10, lr=0.005):
+def train_and_evaluate(model, data, num_epochs=10, lr=0.001):
+    (
+        _,
+        (train_user_profiles, train_item_profiles, train_ratings),
+        (
+            test_user_profiles,
+            test_item_profiles,
+            test_ratings,
+        ),
+    ) = data
     optimizer = optim.Adam(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
-    train_user_profiles, train_item_profiles, train_ratings = train_data
-    test_user_profiles, test_item_profiles, test_ratings = test_data
-    for epoch in range(epochs):
+    train_losses = []
+    for epoch in range(num_epochs):
         model.train()
         optimizer.zero_grad()
-        outputs = model(train_user_profiles, train_item_profiles)
-        loss = criterion(outputs, train_ratings.unsqueeze(1))
+        outputs = model(train_user_profiles, train_item_profiles).squeeze()
+        loss = criterion(outputs, train_ratings)
         loss.backward()
         optimizer.step()
-        model.eval()
-        test_outputs = model(test_user_profiles, test_item_profiles)
-        test_loss = criterion(test_outputs, test_ratings.unsqueeze(1))
-        print(f"Epoch: {epoch + 1}, Loss: {loss.item()}, Test Loss: {test_loss.item()}")
+        train_losses.append(loss.item())
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}")
+
+    model.eval()
+    with torch.no_grad():
+        test_outputs = model(test_user_profiles, test_item_profiles).squeeze()
+        test_loss = mean_squared_error(test_ratings, test_outputs)
+        print(f"Test MSE: {test_loss}")
+
+    return train_losses, test_loss
+
+
+def get_user_profile(user_id, data, item_profiles):
+    user_ratings = data[data["UserID"] == user_id]
+    user_profile = np.mean(item_profiles[user_ratings["MovieID"].values - 1], axis=0)
+    return torch.tensor(user_profile, dtype=torch.float32).unsqueeze(0)
+
+
+def get_recommendations(user_id, model, data, item_profiles, top_n=10):
+    user_profile = get_user_profile(user_id, data, item_profiles)
+    item_profiles_tensor = torch.tensor(item_profiles, dtype=torch.float32)
+    model.eval()
+    with torch.no_grad():
+        scores = model(
+            user_profile.repeat(item_profiles_tensor.shape[0], 1), item_profiles_tensor
+        ).squeeze()
+    top_items_indices = torch.topk(scores, top_n).indices.numpy()
+    return top_items_indices, scores.numpy()
+
+
+def display_recommendations(user_id, top_items_indices, scores, data, movies, top_n=10):
+    top_movies = movies.iloc[top_items_indices]
+    top_scores = scores[top_items_indices]
+    recommendations = pd.DataFrame(
+        {
+            "MovieID": top_movies["MovieID"],
+            "Title": top_movies["Title"],
+            "Score": top_scores,
+        }
+    )
+    recommendations = recommendations.sort_values(by="Score", ascending=False).head(
+        top_n
+    )
+    print(f"Recommendations for User {user_id}:")
+    print(recommendations)
