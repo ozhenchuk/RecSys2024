@@ -22,3 +22,18 @@ The project is based on the dataset
 - Install needed packages from the `requirements.txt` by executing
 - Download the full dataset from the [link](https://grouplens.org/datasets/movielens/1m/) and unpack it into the `data` folder with the whole data structure (the dataset root folder should be `data/ml_1m`)
 - Congratulations, you have the project set up
+
+**Downloading Dataset**
+1. Install packages
+```bash
+pip install -r requirements.txt
+```
+
+2. Setup ENV variables
+    
+    Just copy `.env.example` to `.env`
+
+3. Run download script
+```bash
+python scripts/dataset.py
+```
