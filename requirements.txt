@@ -10,3 +10,6 @@ gensim
 torch
 networkx
 matplotlib
+heapq
+more_itertools
+annoy
